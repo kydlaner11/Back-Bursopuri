@@ -1,5 +1,4 @@
-const { User } = require('../models');
-
+const { create, verify } = require('../models/userModel');
 const {
   createError,
   BAD_REQUEST,
@@ -11,14 +10,7 @@ const postRegister = async (req, res, next) => {
   const props = req.body.user;
 
   try {
-    let user = await User.findOne({ email: props.email });
-    if (user) {
-      return next(createError({
-        status: BAD_REQUEST,
-        message: 'Email already exists',
-      }));
-    }
-    user = await User.create(props);
+    const user = await create(props);
     res.json({
       ok: true,
       message: 'Registration successfully',
@@ -30,7 +22,7 @@ const postRegister = async (req, res, next) => {
       message: error.message,
     }));
   }
-}
+};
 
 const postLogin = async (req, res, next) => {
   const { email, password } = req.body;
@@ -43,13 +35,7 @@ const postLogin = async (req, res, next) => {
   }
 
   try {
-    const user = await User.verify(email.trim(), password);
-    if (!user) {
-      return next(createError({
-        status: NOT_FOUND,
-        message: 'User not found',
-      }));
-    }
+    const user = await verify(email.trim(), password);
     res.json({
       ok: true,
       message: 'Login successfully',
@@ -61,7 +47,7 @@ const postLogin = async (req, res, next) => {
       message: error.message,
     }));
   }
-}
+};
 
 module.exports = {
   postRegister,
