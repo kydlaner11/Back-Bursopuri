@@ -23,4 +23,40 @@ Content-Type: application/json
 
 
 ###
-GET http://localhost:3002/
+PUT http://localhost:3002/menus/BUR003
+Content-Type: application/json
+
+{
+	"menu":{
+		"harga": 15000,
+		"kategori": "makanan"
+	}
+}
+
+###
+POST http://localhost:3002/menus
+Content-Type: application/json
+
+{
+	"menu":{
+    "nama": "Milk Green Tea",
+		"deskripsi": "Minuman Susu Teh Hijau",
+		"harga": 12000,
+		"kategori": "minuman",
+		"image": ""
+	}
+}
+
+
+###
+GET http://localhost:3002/menus/
+Content-Type: application/json
+
+
+###
+DELETE http://localhost:3002/menus/BUR002
+Content-Type: application/json
+
+
+
+

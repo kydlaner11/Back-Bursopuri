@@ -27,3 +27,13 @@ enum Role {
   kepala_dapur
 }
 
+model Menu {
+  id_menu   String  @id 
+  nama      String  
+  deskripsi String
+  harga     Int
+  kategori  String
+  image     String
+  image_url String
+  status_stok  Boolean @default(true)
+}
