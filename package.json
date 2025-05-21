@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "description": "Bursopuri App",
   "main": "index.js",
-  "scripts": {
+ "scripts": {
     "start": "SET DEBUG=backend:* & SET NODE_ENV=prod & node index.js",
     "dev": "SET DEBUG=backend:* & SET NODE_ENV=dev & nodemon index.js",
-    "lint-fix": "eslint --fix"
+    "lint-fix": "eslint --fix",
+    "vercel-build": "prisma generate"
   },
   "keywords": [],
   "author": "",
