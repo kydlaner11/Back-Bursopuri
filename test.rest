@@ -23,15 +23,9 @@ Content-Type: application/json
 
 
 ###
-PUT http://localhost:3002/menus/BUR003
+GET  http://localhost:3002/verify-token
 Content-Type: application/json
 
-{
-	"menu":{
-		"harga": 15000,
-		"kategori": "makanan"
-	}
-}
 
 ###
 POST http://localhost:3002/menus
@@ -49,12 +43,22 @@ Content-Type: application/json
 
 
 ###
-GET http://localhost:3002/menus/
+GET http://localhost:3002/categories
 Content-Type: application/json
 
 
 ###
 DELETE http://localhost:3002/menus/BUR002
+Content-Type: application/json
+
+
+###
+GET http://localhost:3002/bursopuri/carousel
+Content-Type: application/json
+
+
+###
+POST http://localhost:3002/onboarding
 Content-Type: application/json
 
 

@@ -14,12 +14,17 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model User {
-  id_user  String  @id @default(uuid())
-  email    String  @unique
-  username String  @unique
-  password String
-  role     Role
+model Profile {
+  id         String   @id @default(uuid()) @map("id") // UUID dari Supabase Auth
+  email      String   @map("email")
+  fullName   String?  @map("full_name")
+  image      String
+  image_url  String
+  role       Role     @default(admin) @map("role")
+  updatedAt  DateTime @default(now()) @map("updated_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("profiles")
 }
 
 enum Role {
@@ -28,12 +33,116 @@ enum Role {
 }
 
 model Menu {
-  id_menu   String  @id 
-  nama      String  
-  deskripsi String
-  harga     Int
-  kategori  String
-  image     String
-  image_url String
-  status_stok  Boolean @default(true)
+  id_menu     String        @id
+  nama        String
+  deskripsi   String
+  harga       Int
+  kategoriId  String
+  image       String
+  image_url   String
+  status_stok Boolean       @default(false)
+  jumlah_stok  Int?
+  tersedia    Boolean       @default(true)
+
+  category    Category?     @relation(fields: [kategoriId], references: [id_category])
+  options     MenuOption[]  @relation("MenuToMenuOption")
+  orderItems  OrderItem[]   
+}
+
+model Category {
+  id_category String @id
+  name        String
+  image       String
+  image_url   String
+  status      Boolean @default(true)
+
+  menus       Menu[]
+}
+
+model MenuOption {
+  id        String         @id
+  title     String
+  optional  Boolean        @default(false)
+  max       Int
+  choices   OptionChoice[]
+  menus     Menu[]         @relation("MenuToMenuOption")
+}
+
+model OptionChoice {
+  id        String      @id
+  name      String
+  price     Int
+  option    MenuOption  @relation(fields: [optionId], references: [id])
+  optionId  String
+}
+
+model Order {
+  id             String        @id
+  sessionId      String?
+  queueNumber    Int
+  orderType      String
+  paymentMethod  PaymentMethod
+  status         OrderStatus   @default(PENDING)
+  tableNumber    Int?
+  customerId     String?
+  subtotal       Int
+  total          Int
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  finishedAt     DateTime?
+
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+  items          OrderItem[]
+}
+
+
+model OrderItem {
+  id              String        @id
+  orderId         String
+  menuId          String
+  name            String
+  quantity        Int
+  price           Int
+  notes           String?
+  options         Json?         // Replaces SelectedOption model
+
+  order           Order         @relation(fields: [orderId], references: [id])
+  menu            Menu          @relation(fields: [menuId], references: [id_menu])
+}
+
+model Customer {
+  id        String  @id
+  name      String
+  phone     String
+  email     String?
+  orders    Order[]
+}
+
+enum PaymentMethod {
+  CASH
+  QRIS
+  OTHER
+}
+
+enum OrderStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+model Onboarding {
+  id           Int    @id @default(autoincrement())
+  title1       String
+  title2       String
+  image        String
+  image_url    String
+  description1 String
+  description2 String
+}
+
+model Carousel {
+  id         Int    @id @default(autoincrement())
+  image      String
+  image_url  String
 }
