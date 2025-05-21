@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Bursopuri App",
   "main": "index.js",
- "scripts": {
+  "scripts": {
     "start": "SET DEBUG=backend:* & SET NODE_ENV=prod & node index.js",
     "dev": "SET DEBUG=backend:* & SET NODE_ENV=dev & nodemon index.js",
     "lint-fix": "eslint --fix",
@@ -16,7 +16,7 @@
   "dependencies": {
     "@prisma/client": "^6.5.0",
     "@supabase/supabase-js": "^2.49.4",
-    "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
     "debug": "^4.4.0",
