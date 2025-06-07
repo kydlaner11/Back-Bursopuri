@@ -763,6 +763,7 @@ const getMenus = async (req, res, next) => {
         ],
         rating: "5.0", // default rating
         isRecommended: true,
+        tersedia: item.tersedia,
         isNew: false,
         isHot: false,
         isReady: item.tersedia,
