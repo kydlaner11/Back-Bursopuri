@@ -90,6 +90,27 @@ const verify = async (req, res, next) => {
       }));
     }
 
+    // === CEK APAKAH EMAIL ADA DI SUPABASE ===
+    const { data: userList, error: userListError } = await supabase.auth.admin.listUsers({
+      email
+    });
+
+    if (userListError) {
+      return next(createError({
+        status: BAD_REQUEST,
+        message: `Gagal cek email di Supabase: ${userListError.message}`,
+      }));
+    }
+
+    const foundUser = userList?.users?.find(u => u.email === email);
+
+    if (!foundUser) {
+      return next(createError({
+        status: NOT_FOUND,
+        message: "not found user with this email",
+      }));
+    }
+
     // 1. Login via Supabase Auth
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -106,7 +127,7 @@ const verify = async (req, res, next) => {
     const user = data.user;
 
     // 2. Ambil data tambahan dari Prisma
-    const profile = await prisma.profile.findUnique({
+    let profile = await prisma.profile.findUnique({
       where: { id: user.id }
     });
 
