@@ -1,17 +1,19 @@
 const prisma = require('../../database/connection');
 const midtransClient = require('midtrans-client');
 const { createError, BAD_REQUEST, NOT_FOUND } = require('../helpers/errorHelpers');
-// const { FRONT_END_URL } = require('../../utils/content');
+
+const serverKey = process.env.SERVER_KEY;
+console.log('Server Key:', serverKey);
 
 const snap = new midtransClient.Snap({
   isProduction: false, // ubah ke true saat production
-  serverKey: process.env.SERVER_KEY,
+  serverKey: serverKey,
 });
 
 // Core API client untuk verifikasi notification
 const core = new midtransClient.CoreApi({
   isProduction: false, // ubah ke true saat production
-  serverKey: process.env.SERVER_KEY,
+  serverKey: serverKey,
 });
 
 const createPayment = async (req, res, next) => {
