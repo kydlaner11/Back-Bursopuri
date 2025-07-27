@@ -3,6 +3,7 @@ const midtransClient = require('midtrans-client');
 const { createError, BAD_REQUEST, NOT_FOUND } = require('../helpers/errorHelpers');
 
 const serverKey = process.env.SERVER_KEY;
+// const frontendUrl = process.env.FRONT_END_URL || 'http://localhost:3000';
 console.log('Server Key:', serverKey);
 
 const snap = new midtransClient.Snap({
@@ -24,9 +25,7 @@ const createPayment = async (req, res, next) => {
       return next(createError({ status: BAD_REQUEST, message: 'Order ID, amount, and customer details are required' }));
     }
 
-     const frontendUrl = process.env.FRONT_END_URL || 'http://localhost:3000';
-
-    console.log(frontendUrl);
+    // console.log(frontendUrl);
 
     const transactionData = {
       transaction_details: {
@@ -34,11 +33,6 @@ const createPayment = async (req, res, next) => {
         gross_amount: amount,
       },
       customer_details: customerDetails,
-      callback: {
-        finish: `${frontendUrl}/order-successful`,
-        unfinish: `${frontendUrl}/order-transfer`,
-        error: `${frontendUrl}/order-transfer`,
-      },
     };
 
     const transaction = await snap.createTransaction(transactionData);
