@@ -1,8 +1,10 @@
 const router = require('express').Router();
-const {create, verify, changePassword } = require('../controllers/authController');
+const {create, verify } = require('../controllers/authController');
+const verifyToken = require('../middleware/verifyToken');
+const requireRole = require('../middleware/requireRole');
 
-router.route('/register').post(create);
-router.route('/login').post(verify);
+router.post('/register', verifyToken, requireRole('admin'), create);
+router.post('/login', verify);
 // router.route('/verify-token').get(verifyToken);
 // router.route('/check-role').get(verifyToken, checkRole); // Middleware to check role
 

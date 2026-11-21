@@ -144,3 +144,170 @@ model Carousel {
   image      String
   image_url  String
 }
+
+enum Wallet {
+  BUSINESS   // uang usaha
+  FAMILY     // uang keluarga
+}
+
+enum AccountType {
+  CASH
+  BANK
+  EWALLET
+}
+
+enum TransactionType {
+  INCOME         // pemasukan non-penjualan (modal, pencairan platform, dll.)
+  EXPENSE        // pengeluaran
+  TRANSFER_IN    // sisi masuk transfer antar akun/dompet
+  TRANSFER_OUT   // sisi keluar transfer antar akun/dompet
+}
+
+enum ObligationKind {
+  LOAN      // cicilan / utang
+  BILL      // tagihan rutin
+  SAVING    // arisan / tabungan
+}
+
+model FinAccount {
+  id             String      @id @default(uuid())
+  name           String
+  type           AccountType
+  wallet         Wallet
+  openingBalance Decimal     @default(0) @db.Decimal(15, 2)
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  transactions FinTransaction[]
+
+  @@unique([name, wallet])
+  @@map("fin_accounts")
+}
+
+model FinCategory {
+  id        String   @id @default(uuid())
+  name      String
+  wallet    Wallet
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  transactions FinTransaction[]
+
+  @@unique([name, wallet])
+  @@map("fin_categories")
+}
+
+model FinTransaction {
+  id              String          @id @default(uuid())
+  accountId       String
+  categoryId      String?
+  type            TransactionType
+  amount          Decimal         @db.Decimal(15, 2) // selalu positif; arah ditentukan oleh type
+  transactionDate DateTime        @db.Date           // tanggal bisnis (lokal)
+  description     String?
+  reference       String?
+  transferGroupId String?                            // mengikat pasangan TRANSFER_OUT / TRANSFER_IN
+  idempotencyKey  String?         @unique            // mencegah transaksi ganda saat klik dua kali
+  isVoided        Boolean         @default(false)
+  voidedAt        DateTime?
+  voidReason      String?
+  createdById     String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  account  FinAccount   @relation(fields: [accountId], references: [id])
+  category FinCategory? @relation(fields: [categoryId], references: [id])
+
+  @@index([transactionDate])
+  @@index([accountId, transactionDate])
+  @@index([transferGroupId])
+  @@map("fin_transactions")
+}
+
+// Kanal penjualan + aturan harga & komisi (bisa diubah tanpa deploy ulang)
+model FinChannel {
+  id              String   @id @default(uuid())
+  code            String   @unique               // DEPOT, GOJEK, GRAB, SHOPEE
+  name            String
+  isOnline        Boolean  @default(true)
+  commissionRate  Decimal  @default(0) @db.Decimal(5, 4)  // 0.2200 = 22%
+  priceMultiplier Decimal  @default(1) @db.Decimal(6, 3)  // relatif terhadap harga Depot
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sales FinDailySale[]
+
+  @@map("fin_channels")
+}
+
+// Rekap penjualan harian per kanal
+model FinDailySale {
+  id             String   @id @default(uuid())
+  salesDate      DateTime @db.Date
+  channelId      String
+  grossSales     Decimal  @db.Decimal(15, 2)
+  commissionRate Decimal  @db.Decimal(5, 4)   // snapshot saat input
+  platformFee    Decimal  @default(0) @db.Decimal(15, 2) // dihitung backend
+  orderCount     Int      @default(0)
+  notes          String?
+  isVoided       Boolean  @default(false)
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  channel FinChannel @relation(fields: [channelId], references: [id])
+
+  @@unique([salesDate, channelId])
+  @@index([salesDate])
+  @@map("fin_daily_sales")
+}
+
+// Riwayat HPP per menu (HPP berubah, jadi disimpan berdasar tanggal berlaku)
+model FinMenuCost {
+  id            String   @id @default(uuid())
+  menuId        String                       // = Menu.id_menu
+  hpp           Decimal  @db.Decimal(15, 2)
+  packagingCost Decimal  @default(0) @db.Decimal(15, 2)
+  effectiveFrom DateTime @db.Date
+  createdById   String
+  createdAt     DateTime @default(now())
+
+  @@unique([menuId, effectiveFrom])
+  @@index([menuId])
+  @@map("fin_menu_costs")
+}
+
+// Kewajiban bulanan (cicilan, tagihan, arisan)
+model FinObligation {
+  id            String         @id @default(uuid())
+  name          String
+  wallet        Wallet
+  kind          ObligationKind
+  monthlyAmount Decimal        @db.Decimal(15, 2)
+  dueDay        Int?                           // tanggal jatuh tempo (1-31)
+  endDate       DateTime?      @db.Date
+  isActive      Boolean        @default(true)
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([name, wallet])
+  @@map("fin_obligations")
+}
+
+model FinAuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  action     String   // CREATE, UPDATE, VOID
+  entity     String
+  entityId   String
+  beforeData Json?
+  afterData  Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("fin_audit_logs")
+}

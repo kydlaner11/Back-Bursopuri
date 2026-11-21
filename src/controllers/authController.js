@@ -9,9 +9,9 @@ const JWT_TTL = process.env.JWT_TTL || '1d';
 // === REGISTER USER ===
 const create = async (req, res, next) => {
   try {
-    const { email, password, full_name, role } = req.body;
+    const { email, password, full_name } = req.body;
     
-    if (!email || !password || !full_name || !role) {
+    if (!email || !password || !full_name ) {
       return next(createError({
         status: BAD_REQUEST,
         message: 'Email, password, dan full_name wajib diisi',
@@ -54,7 +54,7 @@ const create = async (req, res, next) => {
         id: user.id,
         email: user.email,
         fullName: full_name,
-        role: role,
+        // role: role,
         createdAt: new Date()
       }
     });
@@ -91,25 +91,25 @@ const verify = async (req, res, next) => {
     }
 
     // === CEK APAKAH EMAIL ADA DI SUPABASE ===
-    const { data: userList, error: userListError } = await supabase.auth.admin.listUsers({
-      email
-    });
+    // const { data: userList, error: userListError } = await supabase.auth.admin.listUsers({
+    //   email
+    // });
 
-    if (userListError) {
-      return next(createError({
-        status: BAD_REQUEST,
-        message: `Gagal cek email di Supabase: ${userListError.message}`,
-      }));
-    }
+    // if (userListError) {
+    //   return next(createError({
+    //     status: BAD_REQUEST,
+    //     message: `Gagal cek email di Supabase: ${userListError.message}`,
+    //   }));
+    // }
 
-    const foundUser = userList?.users?.find(u => u.email === email);
+    // const foundUser = userList?.users?.find(u => u.email === email);
 
-    if (!foundUser) {
-      return next(createError({
-        status: NOT_FOUND,
-        message: "not found user with this email",
-      }));
-    }
+    // if (!foundUser) {
+    //   return next(createError({
+    //     status: NOT_FOUND,
+    //     message: "not found user with this email",
+    //   }));
+    // }
 
     // 1. Login via Supabase Auth
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -132,19 +132,10 @@ const verify = async (req, res, next) => {
     });
 
     if (!profile) {
-      // Jika user ada di Supabase tapi tidak ada di profile table
-      // Buat profile baru dengan role default
-      const newProfile = await prisma.profile.create({
-        data: {
-          id: user.id,
-          email: user.email,
-          fullName: user.user_metadata?.full_name || email.split('@')[0],
-          role: 'user',
-          createdAt: new Date()
-        }
-      });
-      
-      profile = newProfile;
+      return next(createError({
+        status: UNAUTHORIZED,
+        message: 'Profile belum terdaftar. Hubungi administrator.',
+      }));
     }
 
     // 3. Buat JWT token dengan informasi lengkap
@@ -178,54 +169,54 @@ const verify = async (req, res, next) => {
 };
 
 // === VERIFY TOKEN MIDDLEWARE ===
-const verifyToken = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+// const verifyToken = async (req, res, next) => {
+//   try {
+//     const authHeader = req.headers.authorization;
+//     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
-    if (!token) {
-      return next(createError({
-        status: UNAUTHORIZED,
-        message: 'Access token required',
-      }));
-    }
+//     if (!token) {
+//       return next(createError({
+//         status: UNAUTHORIZED,
+//         message: 'Access token required',
+//       }));
+//     }
 
-    const decoded = jwt.verify(token, JWT_SECRET);
+//     const decoded = jwt.verify(token, JWT_SECRET);
     
-    // Optional: Check if user still exists in database
-    const profile = await prisma.profile.findUnique({
-      where: { id: decoded.id }
-    });
+//     // Optional: Check if user still exists in database
+//     const profile = await prisma.profile.findUnique({
+//       where: { id: decoded.id }
+//     });
 
-    if (!profile) {
-      return next(createError({
-        status: UNAUTHORIZED,
-        message: 'User not found',
-      }));
-    }
+//     if (!profile) {
+//       return next(createError({
+//         status: UNAUTHORIZED,
+//         message: 'User not found',
+//       }));
+//     }
 
-    req.user = {
-      id: decoded.id,
-      email: decoded.email,
-      role: profile.role,
-      full_name: profile.fullName
-    };
+//     req.user = {
+//       id: decoded.id,
+//       email: decoded.email,
+//       role: profile.role,
+//       full_name: profile.fullName
+//     };
 
-    next();
-  } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return next(createError({
-        status: UNAUTHORIZED,
-        message: 'Token expired',
-      }));
-    }
+//     next();
+//   } catch (error) {
+//     if (error.name === 'TokenExpiredError') {
+//       return next(createError({
+//         status: UNAUTHORIZED,
+//         message: 'Token expired',
+//       }));
+//     }
     
-    return next(createError({
-      status: UNAUTHORIZED,
-      message: 'Invalid token',
-    }));
-  }
-};
+//     return next(createError({
+//       status: UNAUTHORIZED,
+//       message: 'Invalid token',
+//     }));
+//   }
+// };
 
 // === CHECK USER PROFILE ===
 const getProfile = async (req, res, next) => {
@@ -335,7 +326,7 @@ const logout = async (req, res, next) => {
 module.exports = {
   create,
   verify,
-  verifyToken,
+  // verifyToken,
   getProfile,
   changePassword,
   logout,
