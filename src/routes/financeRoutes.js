@@ -10,6 +10,8 @@ router.use(verifyToken, requireRole('admin'));
 
 router.get('/dashboard', o.dashboard);
 
+router.get('/brands', c.getBrands);
+
 router.get('/channels', c.getChannels);
 router.patch('/channels/:id', c.updateChannel);
 

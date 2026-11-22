@@ -52,31 +52,33 @@ const getDashboard = async (q) => {
 
   // Hasil usaha (kas) = penjualan bersih setelah komisi - pengeluaran usaha.
   // BUKAN laba: belum memperhitungkan HPP/stok, jadi dipisah dari grossProfit/netProfit.
-  const net = D(sales.total.netReceivable);
+  const net = D(sales.total.netReceived);
   const operatingResult = net.sub(D(business.total));
 
   const walletBalance = (w) =>
     accounts.filter((a) => a.wallet === w && a.isActive)
       .reduce((acc, a) => acc.add(a.balance), ZERO).toString();
 
-  // Target harian: butuh asumsi margin. Tanpa itu, kita tidak mengarang angka.
+  // Target harian berbasis UANG DITERIMA (sudah bersih dari komisi & promo).
+  // marginRate = bagian dari uang diterima yang tersisa setelah HPP, kemasan, dan gas.
+  // Tanpa asumsi itu, kita tidak mengarang angka.
   let dailyTarget = null;
   if (q.marginRate) {
     const required = D(obligations.totals.all.dailyReserve);
-    const breakEven = required.div(q.marginRate).toDecimalPlaces(0, Prisma.Decimal.ROUND_UP);
-    const todayGross = D(todaySales.total.grossSales);
-    const progress = breakEven.gt(0)
-      ? todayGross.div(breakEven).mul(100).toDecimalPlaces(0)
+    const breakEvenNet = required.div(q.marginRate).toDecimalPlaces(0, Prisma.Decimal.ROUND_UP);
+    const todayNet = D(todaySales.total.netReceived);
+    const progress = breakEvenNet.gt(0)
+      ? todayNet.div(breakEvenNet).mul(100).toDecimalPlaces(0)
       : D(0);
     dailyTarget = {
       assumedMarginRate: q.marginRate,
       requiredProfitPerDay: required.toString(),
-      breakEvenRevenuePerDay: breakEven.toString(),
+      breakEvenNetPerDay: breakEvenNet.toString(),
       todayDate: dayKey(today),
-      todayGrossSales: todayGross.toString(),
+      todayNetReceived: todayNet.toString(),
       progressPercent: progress.toString(),
-      status: todayGross.gte(breakEven) ? 'AMAN' : 'BELUM',
-      note: 'Margin adalah asumsi (setelah HPP, komisi, kemasan). Akan akurat setelah HPP menu terisi.',
+      status: todayNet.gte(breakEvenNet) ? 'AMAN' : 'BELUM',
+      note: 'Dihitung dari uang diterima. Margin adalah asumsi sisa setelah HPP, kemasan, dan gas; akan akurat setelah HPP menu terisi.',
     };
   }
 

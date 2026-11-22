@@ -11,6 +11,10 @@ const wrap = (fn) => async (req, res, next) => {
   }
 };
 
+const getBrands = wrap(async (req, res) => {
+  res.json({ ok: true, data: await service.listBrands() });
+});
+
 const getChannels = wrap(async (req, res) => {
   res.json({ ok: true, data: await service.listChannels() });
 });
@@ -37,12 +41,12 @@ const createSale = wrap(async (req, res) => {
 });
 
 const getSales = wrap(async (req, res) => {
-  const range = validate(schemas.dateRange, req.query);
+  const range = validate(schemas.salesRange, req.query);
   res.json({ ok: true, data: await service.listSales(range) });
 });
 
 const getSalesSummary = wrap(async (req, res) => {
-  const range = validate(schemas.dateRange, req.query);
+  const range = validate(schemas.salesRange, req.query);
   res.json({ ok: true, data: await service.salesSummary(range) });
 });
 
@@ -59,6 +63,7 @@ const voidSale = wrap(async (req, res) => {
 });
 
 module.exports = {
+  getBrands,
   getChannels, updateChannel,
   getAccounts, createAccount,
   createSale, getSales, getSalesSummary, updateSale, voidSale,

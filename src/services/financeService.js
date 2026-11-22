@@ -1,39 +1,32 @@
-const { Prisma } = require('@prisma/client');
 const prisma = require('../../database/connection');
-const { createError } = require('../helpers/errorHelpers');
+const {
+  D, ZERO, notFound, conflict, badRequest, dayKey, snapshot, audit,
+} = require('../../utils/financeUtils');
+const { computeSale } = require('../../utils/salesMath');
 
-const D = (v) => new Prisma.Decimal(v);
-const ZERO = D(0);
+const CHANNEL_SELECT = { code: true, name: true, isOnline: true, commissionRate: true };
+const BRAND_SELECT = { code: true, name: true };
+const SALE_INCLUDE = {
+  channel: { select: CHANNEL_SELECT },
+  brand: { select: BRAND_SELECT },
+};
 
-const notFound = (message) => createError({ status: 404, message });
-const conflict = (message) => createError({ status: 409, message });
-const badRequest = (message) => createError({ status: 400, message });
+// Filter penjualan: periode + (opsional) satu brand. Tanpa brand = semua brand digabung.
+const salesWhere = ({ startDate, endDate, brand }) => ({
+  isVoided: false,
+  salesDate: { gte: startDate, lte: endDate },
+  ...(brand ? { brand: { code: brand } } : {}),
+});
 
-// Semua perhitungan uang dilakukan di sini (backend), bukan di frontend.
-const calcFee = (gross, rate) =>
-  D(gross).mul(D(rate)).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-
-const dayKey = (d) => d.toISOString().slice(0, 10);
-
-const audit = (tx, { userId, action, entity, entityId, before, after }) =>
-  tx.finAuditLog.create({
-    data: {
-      userId,
-      action,
-      entity,
-      entityId,
-      beforeData: before ?? undefined,
-      afterData: after ?? undefined,
-    },
+// ------------------------------------------------------------------ BRANDS
+const listBrands = () =>
+  prisma.finBrand.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
   });
 
-// Bentuk plain-JSON untuk audit (Decimal -> string, Date -> ISO)
-const snapshot = (obj) => JSON.parse(JSON.stringify(obj));
-
-const withNet = (sale) => ({
-  ...sale,
-  netReceivable: D(sale.grossSales).sub(D(sale.platformFee)).toString(),
-});
+// netReceivable = alias lama dari netReceived (dipertahankan agar klien lama tidak patah)
+const shapeSale = (sale) => ({ ...sale, netReceivable: sale.netReceived });
 
 // ---------------------------------------------------------------- CHANNELS
 const listChannels = () =>
@@ -108,29 +101,40 @@ const createAccount = async (input, userId) => {
 };
 
 // ------------------------------------------------------------------- SALES
+// Basis input: UANG DITERIMA (netReceived). Omzet kotor & komisi diturunkan oleh
+// computeSale (lihat salesMath.js) dan ditandai isGrossEstimated bila hanya perkiraan.
 const createSale = async (input, userId) => {
   const channel = await prisma.finChannel.findUnique({ where: { code: input.channel } });
   if (!channel) throw badRequest(`Kanal ${input.channel} tidak dikenal`);
   if (!channel.isActive) throw badRequest(`Kanal ${channel.name} tidak aktif`);
 
-  const rate = channel.commissionRate;
-  const data = {
-    grossSales: input.grossSales,
-    commissionRate: rate,
-    platformFee: calcFee(input.grossSales, rate),
-    orderCount: input.orderCount,
-    notes: input.notes ?? null,
-  };
+  const brand = await prisma.finBrand.findUnique({ where: { code: input.brand } });
+  if (!brand) throw badRequest(`Brand ${input.brand} tidak dikenal`);
+  if (!brand.isActive) throw badRequest(`Brand ${brand.name} tidak aktif`);
+
+  const calc = computeSale({
+    net: input.netReceived,
+    gross: input.grossSales,
+    rateOverride: input.commissionRate,
+    channel,
+  });
+  const data = { ...calc, brandId: brand.id, orderCount: input.orderCount, notes: input.notes ?? null };
 
   try {
     return await prisma.$transaction(async (tx) => {
       const existing = await tx.finDailySale.findUnique({
-        where: { salesDate_channelId: { salesDate: input.salesDate, channelId: channel.id } },
+        where: {
+          salesDate_channelId_brandId: {
+            salesDate: input.salesDate,
+            channelId: channel.id,
+            brandId: brand.id,
+          },
+        },
       });
 
       if (existing && !existing.isVoided) {
         throw conflict(
-          `Rekap ${channel.name} tanggal ${dayKey(input.salesDate)} sudah ada. Gunakan edit, bukan input baru.`
+          `Rekap ${brand.name} / ${channel.name} tanggal ${dayKey(input.salesDate)} sudah ada. Gunakan edit, bukan input baru.`
         );
       }
 
@@ -140,7 +144,7 @@ const createSale = async (input, userId) => {
         sale = await tx.finDailySale.update({
           where: { id: existing.id },
           data: { ...data, isVoided: false, createdById: userId },
-          include: { channel: true },
+          include: SALE_INCLUDE,
         });
         await audit(tx, {
           userId, action: 'UPDATE', entity: 'FinDailySale', entityId: sale.id,
@@ -149,55 +153,76 @@ const createSale = async (input, userId) => {
       } else {
         sale = await tx.finDailySale.create({
           data: { ...data, salesDate: input.salesDate, channelId: channel.id, createdById: userId },
-          include: { channel: true },
+          include: SALE_INCLUDE,
         });
         await audit(tx, {
           userId, action: 'CREATE', entity: 'FinDailySale', entityId: sale.id,
           after: snapshot(sale),
         });
       }
-      return withNet(sale);
+      return shapeSale(sale);
     });
   } catch (e) {
     // Dua request bersamaan untuk tanggal+kanal yang sama
-    if (e.code === 'P2002') throw conflict('Rekap untuk tanggal dan kanal ini sudah ada');
+    if (e.code === 'P2002') throw conflict('Rekap untuk tanggal, brand, dan kanal ini sudah ada');
     throw e;
   }
 };
 
-const listSales = async ({ startDate, endDate }) => {
+const listSales = async ({ startDate, endDate, brand }) => {
   const sales = await prisma.finDailySale.findMany({
-    where: { isVoided: false, salesDate: { gte: startDate, lte: endDate } },
-    include: { channel: { select: { code: true, name: true } } },
-    orderBy: [{ salesDate: 'desc' }, { channel: { name: 'asc' } }],
+    where: salesWhere({ startDate, endDate, brand }),
+    include: SALE_INCLUDE,
+    orderBy: [{ salesDate: 'desc' }, { brand: { sortOrder: 'asc' } }, { channel: { name: 'asc' } }],
   });
-  return sales.map(withNet);
+  return sales.map(shapeSale);
 };
 
+// Update = tentukan ulang masukan hitungan:
+//  - netReceived  : diganti jika dikirim, selain itu tetap
+//  - grossSales   : angka -> pakai omzet kotor nyata; null -> kembali ke estimasi;
+//                   tidak dikirim -> tetap seperti sebelumnya
+//  - commissionRate: angka -> estimasi dengan komisi itu; null -> komisi default kanal;
+//                   tidak dikirim -> tetap seperti sebelumnya (bila sebelumnya estimasi)
 const updateSale = async (id, input, userId) => {
   return prisma.$transaction(async (tx) => {
-    const before = await tx.finDailySale.findUnique({ where: { id } });
+    const before = await tx.finDailySale.findUnique({
+      where: { id },
+      include: SALE_INCLUDE,
+    });
     if (!before || before.isVoided) throw notFound('Rekap penjualan tidak ditemukan');
 
-    const gross = input.grossSales ?? before.grossSales;
-    const data = {
-      grossSales: gross,
-      // komisi memakai snapshot saat rekap dibuat, bukan tarif kanal terbaru
-      platformFee: calcFee(gross, before.commissionRate),
-    };
+    const net = input.netReceived ?? before.netReceived;
+
+    let gross =
+      input.grossSales !== undefined
+        ? input.grossSales
+        : before.isGrossEstimated ? null : before.grossSales;
+
+    let rateOverride = input.commissionRate !== undefined ? input.commissionRate : null;
+
+    // Pengguna memberi komisi tanpa menyebut omzet kotor -> beralih ke mode estimasi
+    if (input.commissionRate != null && input.grossSales === undefined) gross = null;
+    // Komisi tidak disebut sama sekali & sebelumnya estimasi -> pertahankan komisi yang dipakai
+    if (gross === null && input.commissionRate === undefined && before.isGrossEstimated) {
+      rateOverride = before.commissionRate;
+    }
+
+    const calc = computeSale({ net, gross, rateOverride, channel: before.channel });
+    const data = { ...calc };
     if (input.orderCount !== undefined) data.orderCount = input.orderCount;
     if (input.notes !== undefined) data.notes = input.notes;
 
     const after = await tx.finDailySale.update({
       where: { id },
       data,
-      include: { channel: true },
+      include: SALE_INCLUDE,
     });
     await audit(tx, {
       userId, action: 'UPDATE', entity: 'FinDailySale', entityId: id,
       before: snapshot(before), after: snapshot(after),
     });
-    return withNet(after);
+    return shapeSale(after);
   });
 };
 
@@ -215,34 +240,51 @@ const voidSale = async (id, { reason }, userId) => {
   });
 };
 
-const salesSummary = async ({ startDate, endDate }) => {
+// Ringkasan. Yang PASTI: netReceived (uang diterima). Yang ESTIMASI bila grossEstimated=true:
+// grossSales, platformFee, averageOrderValue. observedCommission = komisi nyata dari hari-hari
+// yang omzet kotornya diisi (bukan estimasi), berguna untuk melihat biaya platform sebenarnya.
+const salesSummary = async ({ startDate, endDate, brand }) => {
   const sales = await prisma.finDailySale.findMany({
-    where: { isVoided: false, salesDate: { gte: startDate, lte: endDate } },
-    include: { channel: { select: { code: true, name: true } } },
+    where: salesWhere({ startDate, endDate, brand }),
+    include: SALE_INCLUDE,
     orderBy: { salesDate: 'asc' },
   });
 
-  const blank = () => ({ gross: ZERO, fee: ZERO, orders: 0 });
+  const blank = () => ({ gross: ZERO, fee: ZERO, net: ZERO, orders: 0, estimated: false });
   const total = blank();
   const byChannel = {};
   const byDay = {};
 
   for (const s of sales) {
     const bucket = (map, key, extra = {}) => (map[key] = map[key] || { ...blank(), ...extra });
-    const c = bucket(byChannel, s.channel.code, { name: s.channel.name });
+    const c = bucket(byChannel, s.channel.code, {
+      name: s.channel.name,
+      defaultRate: s.channel.commissionRate,
+      obsGross: ZERO, obsFee: ZERO, obsDays: 0,
+    });
     const d = bucket(byDay, dayKey(s.salesDate));
     for (const b of [total, c, d]) {
       b.gross = b.gross.add(s.grossSales);
       b.fee = b.fee.add(s.platformFee);
+      b.net = b.net.add(s.netReceived);
       b.orders += s.orderCount;
+      if (s.isGrossEstimated) b.estimated = true;
+    }
+    if (s.channel.isOnline && !s.isGrossEstimated && D(s.grossSales).gt(0)) {
+      c.obsGross = c.obsGross.add(s.grossSales);
+      c.obsFee = c.obsFee.add(s.platformFee);
+      c.obsDays += 1;
     }
   }
 
   const out = (b) => ({
+    netReceived: b.net.toString(),
+    netReceivable: b.net.toString(), // alias lama
     grossSales: b.gross.toString(),
     platformFee: b.fee.toString(),
-    netReceivable: b.gross.sub(b.fee).toString(),
+    grossEstimated: b.estimated,
     orderCount: b.orders,
+    averageNetPerOrder: b.orders > 0 ? b.net.div(b.orders).toDecimalPlaces(0).toString() : null,
     averageOrderValue: b.orders > 0 ? b.gross.div(b.orders).toDecimalPlaces(0).toString() : null,
   });
 
@@ -251,13 +293,24 @@ const salesSummary = async ({ startDate, endDate }) => {
     period: { startDate: dayKey(startDate), endDate: dayKey(endDate) },
     daysWithData: days,
     total: out(total),
+    averageNetPerDay: days > 0 ? total.net.div(days).toDecimalPlaces(0).toString() : null,
     averageGrossPerDay: days > 0 ? total.gross.div(days).toDecimalPlaces(0).toString() : null,
-    byChannel: Object.entries(byChannel).map(([code, b]) => ({ code, name: b.name, ...out(b) })),
+    byChannel: Object.entries(byChannel).map(([code, b]) => ({
+      code,
+      name: b.name,
+      defaultCommissionRate: D(b.defaultRate).toString(),
+      observedCommission:
+        b.obsDays > 0
+          ? { days: b.obsDays, rate: b.obsFee.div(b.obsGross).toDecimalPlaces(4).toString() }
+          : null,
+      ...out(b),
+    })),
     trend: Object.entries(byDay).map(([date, b]) => ({ date, ...out(b) })),
   };
 };
 
 module.exports = {
+  listBrands,
   listChannels, updateChannel,
   listAccounts, createAccount,
   createSale, listSales, updateSale, voidSale, salesSummary,

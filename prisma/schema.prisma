@@ -247,9 +247,13 @@ model FinDailySale {
   id             String   @id @default(uuid())
   salesDate      DateTime @db.Date
   channelId      String
-  grossSales     Decimal  @db.Decimal(15, 2)
-  commissionRate Decimal  @db.Decimal(5, 4)   // snapshot saat input
-  platformFee    Decimal  @default(0) @db.Decimal(15, 2) // dihitung backend
+  netReceived      Decimal  @default(0) @db.Decimal(15, 2)  // BARU: uang diterima (fakta)
+  grossSales       Decimal  @db.Decimal(15, 2)              // kini bisa berupa estimasi
+  isGrossEstimated Boolean  @default(false)                 // BARU: true = grossSales hanya perkiraan
+  commissionRate   Decimal  @db.Decimal(5, 4)
+  platformFee      Decimal  @default(0) @db.Decimal(15, 2)
+  brandId  String
+  brand    FinBrand @relation(fields: [brandId], references: [id])
   orderCount     Int      @default(0)
   notes          String?
   isVoided       Boolean  @default(false)
@@ -259,7 +263,7 @@ model FinDailySale {
 
   channel FinChannel @relation(fields: [channelId], references: [id])
 
-  @@unique([salesDate, channelId])
+  @@unique([salesDate, channelId, brandId])
   @@index([salesDate])
   @@map("fin_daily_sales")
 }
@@ -310,4 +314,17 @@ model FinAuditLog {
   @@index([entity, entityId])
   @@index([createdAt])
   @@map("fin_audit_logs")
+}
+
+model FinBrand {
+  id        String   @id @default(uuid())
+  code      String   @unique              // BURSOPURI, PANGPUR, HOKBO, OEWY
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  sales FinDailySale[]
+
+  @@map("fin_brands")
 }

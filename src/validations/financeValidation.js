@@ -12,6 +12,15 @@ const money = z
 
 const positiveMoney = money.refine((v) => Number(v) > 0, 'Nominal harus lebih dari 0');
 
+// Komisi sebagai pecahan 0..0.9999 (0.22 = 22%). Tidak boleh 100% karena omzet kotor = bersih / (1 - komisi).
+const rate = z
+  .union([z.number(), z.string()])
+  .transform((v) => String(v).trim())
+  .refine(
+    (v) => /^0(\.\d{1,4})?$/.test(v),
+    'Komisi harus 0 sampai di bawah 1 (contoh 0.22 untuk 22%)'
+  );
+
 // Tanggal bisnis YYYY-MM-DD -> Date UTC midnight (cocok dengan kolom @db.Date)
 const dateOnly = z
   .string()
@@ -116,14 +125,22 @@ const schemas = {
   createSale: z.object({
     salesDate: dateOnly,
     channel: z.string().trim().min(1).transform((s) => s.toUpperCase()),
-    grossSales: money,
+    brand: z.string().trim().min(1, 'Brand wajib dipilih').transform((s) => s.toUpperCase()),
+    // Basis input = UANG DITERIMA (angka bersih di aplikasi merchant)
+    netReceived: money,
+    // Opsional. Isi omzet kotor (komisi dihitung dari selisih) ATAU komisi (untuk estimasi), bukan keduanya.
+    grossSales: money.optional(),
+    commissionRate: rate.optional(),
     orderCount: z.number().int().min(0).max(100000).default(0),
     notes: z.string().trim().max(500).optional(),
   }),
 
   updateSale: z
     .object({
-      grossSales: money.optional(),
+      netReceived: money.optional(),
+      // null = kembali ke estimasi
+      grossSales: money.nullable().optional(),
+      commissionRate: rate.nullable().optional(),
       orderCount: z.number().int().min(0).max(100000).optional(),
       notes: z.string().trim().max(500).nullable().optional(),
     })
@@ -131,6 +148,16 @@ const schemas = {
       (o) => Object.values(o).some((v) => v !== undefined),
       'Minimal satu field harus diisi'
     ),
+
+  // Periode + filter brand opsional (tanpa brand = semua brand digabung)
+  salesRange: z
+    .object({
+      startDate: dateOnly,
+      endDate: dateOnly,
+      brand: z.string().trim().min(1).transform((s) => s.toUpperCase()).optional(),
+    })
+    .refine((r) => r.startDate <= r.endDate, 'startDate tidak boleh setelah endDate')
+    .refine((r) => (r.endDate - r.startDate) / 86400000 <= 365, 'Rentang maksimal 366 hari'),
 
   voidSale: z.object({
     reason: z.string().trim().min(3, 'Alasan wajib diisi').max(300),
